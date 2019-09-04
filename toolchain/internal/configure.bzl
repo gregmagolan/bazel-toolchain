@@ -22,6 +22,7 @@ load(
     _sysroot_path = "sysroot_path",
 )
 
+
 def _makevars_ld_flags(rctx):
     if rctx.os.name == "mac os x":
         return ""
@@ -43,7 +44,7 @@ def llvm_toolchain_impl(rctx):
     else:
         toolchain_path_prefix = relative_path_prefix
 
-    sysroot_path, sysroot = _sysroot_path(rctx)
+    sysroot_path, sysroot, sysroot_ensure = _sysroot_path(rctx)
     substitutions = {
         "%{repo_name}": rctx.name,
         "%{llvm_version}": rctx.attr.llvm_version,
@@ -51,6 +52,7 @@ def llvm_toolchain_impl(rctx):
         "%{tools_path_prefix}": (repo_path + "/") if rctx.attr.absolute_paths else "",
         "%{debug_toolchain_path_prefix}": relative_path_prefix,
         "%{sysroot_path}": sysroot_path,
+        "%{sysroot_ensure}": "\"%s\"" % str(sysroot_ensure) if sysroot_ensure else "",
         "%{sysroot_prefix}": "%sysroot%" if sysroot_path else "",
         "%{sysroot_label}": "\"%s\"" % str(sysroot) if sysroot else "",
         "%{absolute_paths}": "True" if rctx.attr.absolute_paths else "False",
@@ -100,26 +102,23 @@ def llvm_toolchain_impl(rctx):
     if not _download_llvm(rctx):
         _download_llvm_preconfigured(rctx)
 
-def conditional_cc_toolchain(name, darwin, absolute_paths = False):
+def conditional_cc_toolchain(name, toolchain_config, absolute_paths = False):
     # Toolchain macro for BUILD file to use conditional logic.
-
-    toolchain_config = "local_darwin" if darwin else "local_linux"
-    toolchain_identifier = "clang-darwin" if darwin else "clang-linux"
 
     if absolute_paths:
         native.cc_toolchain(
             name = name,
             toolchain_config = toolchain_config,
             all_files = ":empty",
-            compiler_files = ":empty",
+            compiler_files = ":sysroot_components",
             dwp_files = ":empty",
             linker_files = ":empty",
             objcopy_files = ":empty",
             strip_files = ":empty",
-            supports_param_files = 0 if darwin else 1,
+            supports_param_files = 0 if "darwin" in toolchain_config else 1,
         )
     else:
-        extra_files = [":cc_wrapper"] if darwin else []
+        extra_files = [":cc_wrapper"] if "darwin" in toolchain_config else []
         native.filegroup(name = name + "-all-files", srcs = [":all_components"] + extra_files)
         native.filegroup(name = name + "-compiler-files", srcs = [":compiler_components"] + extra_files)
         native.filegroup(name = name + "-linker-files", srcs = [":linker_components"] + extra_files)
@@ -134,5 +133,5 @@ def conditional_cc_toolchain(name, darwin, absolute_paths = False):
             linker_files = name + "-linker-files",
             objcopy_files = ":objcopy",
             strip_files = ":empty",
-            supports_param_files = 0 if darwin else 1,
+            supports_param_files = 0 if "darwin" in toolchain_config else 1,
         )

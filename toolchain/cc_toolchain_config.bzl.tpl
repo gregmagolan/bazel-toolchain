@@ -31,65 +31,77 @@ load(
 load("@bazel_tools//tools/build_defs/cc:action_names.bzl", "ACTION_NAMES")
 
 def _impl(ctx):
-    if (ctx.attr.cpu == "darwin"):
+    host_cpu = ctx.attr.host_cpu
+    if not host_cpu:
+        host_cpu = ctx.attr.cpu
+
+    cpu = ctx.attr.cpu
+
+    cross_target = ctx.attr.cross_target
+
+    if cross_target:
+        toolchain_identifier = cross_target
+    elif (cpu == "darwin"):
         toolchain_identifier = "clang-darwin"
-    elif (ctx.attr.cpu == "k8"):
+    elif (cpu == "k8"):
         toolchain_identifier = "clang-linux"
     else:
         fail("Unreachable")
 
-    if (ctx.attr.cpu == "k8"):
+    if (host_cpu == "k8"):
         host_system_name = "x86_64"
-    elif (ctx.attr.cpu == "darwin"):
+    elif (host_cpu == "darwin"):
         host_system_name = "x86_64-apple-macosx"
     else:
         fail("Unreachable")
 
-    if (ctx.attr.cpu == "darwin"):
+    if cross_target:
+        target_system_name = cross_target
+    if (cpu == "darwin"):
         target_system_name = "x86_64-apple-macosx"
-    elif (ctx.attr.cpu == "k8"):
+    elif (cpu == "k8"):
         target_system_name = "x86_64-unknown-linux-gnu"
     else:
         fail("Unreachable")
 
-    if (ctx.attr.cpu == "darwin"):
+    if (cpu == "darwin"):
         target_cpu = "darwin"
-    elif (ctx.attr.cpu == "k8"):
+    elif (cpu == "k8"):
         target_cpu = "k8"
     else:
         fail("Unreachable")
 
-    if (ctx.attr.cpu == "k8"):
+    if (cpu == "k8"):
         target_libc = "glibc_unknown"
-    elif (ctx.attr.cpu == "darwin"):
+    elif (cpu == "darwin"):
         target_libc = "macosx"
     else:
         fail("Unreachable")
 
-    if (ctx.attr.cpu == "darwin" or
-        ctx.attr.cpu == "k8"):
+    if (cpu == "darwin" or
+        cpu == "k8"):
         compiler = "clang"
     else:
         fail("Unreachable")
 
-    if (ctx.attr.cpu == "k8"):
+    if (cpu == "k8"):
         abi_version = "clang"
-    elif (ctx.attr.cpu == "darwin"):
+    elif (cpu == "darwin"):
         abi_version = "darwin_x86_64"
     else:
         fail("Unreachable")
 
-    if (ctx.attr.cpu == "darwin"):
+    if (cpu == "darwin"):
         abi_libc_version = "darwin_x86_64"
-    elif (ctx.attr.cpu == "k8"):
+    elif (cpu == "k8"):
         abi_libc_version = "glibc_unknown"
     else:
         fail("Unreachable")
 
     cc_target_os = None
 
-    if (ctx.attr.cpu == "darwin" or
-        ctx.attr.cpu == "k8"):
+    if (cpu == "darwin" or
+        cpu == "k8"):
         builtin_sysroot = "%{sysroot_path}"
     else:
         fail("Unreachable")
@@ -144,7 +156,20 @@ def _impl(ctx):
 
     action_configs = []
 
-    if ctx.attr.cpu == "k8":
+    if "linux" in cross_target:
+        linker_flags = [
+            # Use the lld linker.
+            "-fuse-ld=lld",
+            "-l:libc++.a",
+            "-l:libc++abi.a",
+            "-l:libunwind.a",
+            "-L%{toolchain_path_prefix}/lib",
+            # To support libunwind.
+            "-lpthread",
+            "-ldl",
+            "-Wl,-z,relro,-z,now",
+        ]
+    elif cpu == "k8":
         linker_flags = [
             # Use the lld linker.
             "-fuse-ld=lld",
@@ -163,7 +188,7 @@ def _impl(ctx):
             "-Wl,--hash-style=gnu",
             "-Wl,-z,relro,-z,now",
         ]
-    elif ctx.attr.cpu == "darwin":
+    elif cpu == "darwin":
         linker_flags = [
             # Difficult to guess options to statically link C++ libraries with the macOS linker.
             "-lc++",
@@ -228,7 +253,7 @@ def _impl(ctx):
                 flag_groups = [flag_group(flags = ["-Wl,--gc-sections"])],
                 with_features = [with_feature_set(features = ["opt"])],
             ),
-        ] if ctx.attr.cpu == "k8" else []),
+        ] if ctx.attr.cpu == "k8" or ctx.attr.cpu == "linux-cross" else []),
     )
 
     default_compile_flags_feature = feature(
@@ -276,7 +301,16 @@ def _impl(ctx):
             ),
             flag_set(
                 actions = all_cpp_compile_actions,
-                flag_groups = [flag_group(flags = ["-std=c++17", "-stdlib=libc++"])],
+                flag_groups = [
+                    flag_group(
+                        flags = [
+                            "-std=c++17",
+                        ] if cross_target else [
+                            "-std=c++17",
+                            "-stdlib=libc++",
+                        ],
+                    )
+                ],
             ),
         ],
     )
@@ -318,7 +352,9 @@ def _impl(ctx):
                 flag_groups = [
                     flag_group(
                         expand_if_available = "sysroot",
-                        flags = ["--sysroot=%{sysroot}"],
+                        flags = [
+                            "--sysroot=%{sysroot}",
+                        ],
                     ),
                 ],
             ),
@@ -475,6 +511,21 @@ def _impl(ctx):
         ],
     )
 
+    target_feature = feature(
+        name = "target",
+        enabled = True,
+        flag_sets = [
+            flag_set(
+                actions = all_compile_actions + all_link_actions,
+                flag_groups = [
+                    flag_group(
+                        flags = ["-target", target_system_name],
+                    ),
+                ],
+            ),
+        ],
+    )
+
     features = [
         opt_feature,
         fastbuild_feature,
@@ -495,10 +546,12 @@ def _impl(ctx):
         # compiler_input_flags_feature
         # compiler_output_flags_feature
     ]
-    if (ctx.attr.cpu == "darwin"):
+    if (cpu == "darwin"):
         features.extend([framework_paths_feature])
+    if (cpu != target_cpu):
+        features.extend([target_feature])
 
-    if (ctx.attr.cpu == "k8"):
+    if (cpu == "k8"):
         cxx_builtin_include_directories = [
             "%{toolchain_path_prefix}include/c++/v1",
             "%{toolchain_path_prefix}lib/clang/%{llvm_version}/include",
@@ -530,12 +583,12 @@ def _impl(ctx):
                 value = "-Wframe-larger-than=100000000 -Wno-vla",
             ),
         ]
-    elif (ctx.attr.cpu == "k8"):
+    elif (cpu == "k8"):
         make_variables = []
     else:
         fail("Unreachable")
 
-    if (ctx.attr.cpu == "k8"):
+    if (cpu == "k8"):
         tool_paths = [
             tool_path(
                 name = "ld",
@@ -575,7 +628,7 @@ def _impl(ctx):
                 path = "%{tools_path_prefix}bin/llvm-ar",
             ),
         ]
-    elif (ctx.attr.cpu == "darwin"):
+    elif (cpu == "darwin"):
         tool_paths = [
             tool_path(name = "ld", path = "%{tools_path_prefix}bin/ld"),
             tool_path(
@@ -643,6 +696,13 @@ cc_toolchain_config = rule(
     attrs = {
         "cpu": attr.string(
             mandatory = True,
+            values = [
+                "darwin",
+                "k8",
+            ],
+        ),
+        "cross_target": attr.string(),
+        "host_cpu": attr.string(
             values = [
                 "darwin",
                 "k8",

@@ -18,7 +18,7 @@ exports_files(["Makevars"])
 
 filegroup(
     name = "empty",
-    srcs = [],
+    srcs = [%{sysroot_ensure}],
 )
 
 filegroup(
@@ -41,15 +41,31 @@ cc_toolchain_suite(
     },
 )
 
+cc_toolchain_suite(
+    name = "osxcross",
+    toolchains = {
+        "linux-cross": "cc-clang-linux-on-darwin",
+    },
+)
+
 load(":cc_toolchain_config.bzl", "cc_toolchain_config")
 
 cc_toolchain_config(
     name = "local_linux",
+    host_cpu = "k8",
     cpu = "k8",
 )
 
 cc_toolchain_config(
+    name = "linux_on_darwin",
+    cpu = "k8",
+    host_cpu = "darwin",
+    cross_target = "x86_64-unknown-linux-gnu",
+)
+
+cc_toolchain_config(
     name = "local_darwin",
+    host_cpu = "darwin",
     cpu = "darwin",
 )
 
@@ -81,10 +97,25 @@ toolchain(
     toolchain_type = "@bazel_tools//tools/cpp:toolchain_type",
 )
 
+toolchain(
+    name = "cc-toolchain-linux-on-darwin",
+    exec_compatible_with = [
+        "@bazel_tools//platforms:x86_64",
+        "@bazel_tools//platforms:osx",
+    ],
+    target_compatible_with = [
+        "@bazel_tools//platforms:x86_64",
+        "@bazel_tools//platforms:linux",
+    ],
+    toolchain = ":cc-clang-linux-on-darwin",
+    toolchain_type = "@bazel_tools//tools/cpp:toolchain_type",
+)
+
 load("@com_grail_bazel_toolchain//toolchain:rules.bzl", "conditional_cc_toolchain")
 
-conditional_cc_toolchain("cc-clang-linux", False, %{absolute_paths})
-conditional_cc_toolchain("cc-clang-darwin", True, %{absolute_paths})
+conditional_cc_toolchain("cc-clang-linux", "local_linux", %{absolute_paths})
+conditional_cc_toolchain("cc-clang-darwin", "local_darwin", %{absolute_paths})
+conditional_cc_toolchain("cc-clang-linux-on-darwin", "linux_on_darwin", %{absolute_paths})
 
 ## LLVM toolchain files
 # Needed when not using absolute paths.

@@ -12,6 +12,8 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+load("@bazel_skylib//lib:paths.bzl", "paths")
+
 def _darwin_sdk_path(rctx):
     if rctx.os.name != "mac os x":
         return ""
@@ -39,13 +41,20 @@ def sysroot_path(rctx):
         fail("Unsupported OS: " + rctx.os.name)
 
     if not sysroot:
-        return (_default_sysroot(rctx), None)
+        return (_default_sysroot(rctx), None, None)
 
     if sysroot[0] == "/" and sysroot[1] != "/":
-        return (sysroot, None)
+        return (sysroot, None, None)
 
     sysroot = Label(sysroot)
-    if sysroot.workspace_root:
-        return (sysroot.workspace_root + "/" + sysroot.package, sysroot)
+    if rctx.attr.absolute_paths:
+        sysroot_ensure = Label("@" + sysroot.workspace_name + "//" + sysroot.package + ":" + "ensure")
+        ## HACK to get absolute path to sandbox
+        absolute_path_to_repo = str(rctx.path(""))
+        sandbox_path = absolute_path_to_repo[:absolute_path_to_repo.index("external")]
+
+        return (paths.join(sandbox_path, sysroot.workspace_root, sysroot.package), sysroot_ensure, sysroot)
+    elif sysroot.workspace_root:
+        return (sysroot.workspace_root + "/" + sysroot.package, None, sysroot)
     else:
-        return (sysroot.package, sysroot)
+        return (sysroot.package, None, sysroot)
