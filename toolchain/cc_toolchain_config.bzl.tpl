@@ -160,14 +160,17 @@ def _impl(ctx):
         linker_flags = [
             # Use the lld linker.
             "-fuse-ld=lld",
-            "-l:libc++.a",
-            "-l:libc++abi.a",
-            "-l:libunwind.a",
-            "-L%{toolchain_path_prefix}/lib",
+            # "-l:libc++.a",
+            # "-l:libc++abi.a",
+            # "-l:libunwind.a",
+            # "-L%{toolchain_path_prefix}/lib",
+            "-L%{sysroot}/usr/lib/x86_64-linux-gnu",
             # To support libunwind.
             "-lpthread",
             "-ldl",
             "-Wl,-z,relro,-z,now",
+            "-v",
+            "--target=x86_64-linux-gnu",
         ]
     elif cpu == "k8":
         linker_flags = [
@@ -265,6 +268,13 @@ def _impl(ctx):
                 flag_groups = [
                     flag_group(
                         flags = [
+                            "-I%{toolchain_path_prefix}include/c++/v1",
+                            "-I%{toolchain_path_prefix}lib/clang/%{llvm_version}/include",
+                            "-I%{sysroot}/include",
+                            "-I%{sysroot}/usr/include",
+                            "-I%{sysroot}/usr/local/include",
+                            "-I%{sysroot}/usr/include/x86_64-linux-gnu",
+                            "--target=x86_64-linux-gnu",
                             # Security
                             "-U_FORTIFY_SOURCE",  # https://github.com/google/sanitizers/issues/247
                             "-fstack-protector",
@@ -551,13 +561,25 @@ def _impl(ctx):
     if (cpu != target_cpu):
         features.extend([target_feature])
 
-    if (cpu == "k8"):
+    if "linux" in cross_target:
         cxx_builtin_include_directories = [
             "%{toolchain_path_prefix}include/c++/v1",
             "%{toolchain_path_prefix}lib/clang/%{llvm_version}/include",
             "%{sysroot_prefix}/include",
             "%{sysroot_prefix}/usr/include",
             "%{sysroot_prefix}/usr/local/include",
+            "%{sysroot_prefix}/usr/include/x86_64-linux-gnu",
+        ] + [
+            %{k8_additional_cxx_builtin_include_directories}
+        ]
+    elif (cpu == "k8"):
+        cxx_builtin_include_directories = [
+            "%{toolchain_path_prefix}include/c++/v1",
+            "%{toolchain_path_prefix}lib/clang/%{llvm_version}/include",
+            "%{sysroot_prefix}/include",
+            "%{sysroot_prefix}/usr/include",
+            "%{sysroot_prefix}/usr/local/include",
+            "%{sysroot_prefix}/usr/include/x86_64-linux-gnu",
         ] + [
             %{k8_additional_cxx_builtin_include_directories}
         ]
